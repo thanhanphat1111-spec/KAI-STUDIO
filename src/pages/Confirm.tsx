@@ -11,13 +11,27 @@ export default function Confirm() {
 
   useEffect(() => {
     const fetchContract = async () => {
-      const res = await fetch(`/api/get-contract?id=${id}`)
-      const data = await res.json()
-      setContract(data)
-      setLoading(false)
+      try {
+        const res = await fetch(`/api/contracts/${id}`)
+
+        if (!res.ok) {
+          setContract(null)
+          setLoading(false)
+          return
+        }
+
+        const data = await res.json()
+        setContract(data)
+      } catch (error) {
+        setContract(null)
+      } finally {
+        setLoading(false)
+      }
     }
 
-    fetchContract()
+    if (id) {
+      fetchContract()
+    }
   }, [id])
 
   const handleVerify = async () => {
@@ -52,6 +66,7 @@ export default function Confirm() {
       <a
         href={contract.contract_link}
         target="_blank"
+        rel="noopener noreferrer"
         className="text-blue-600 underline"
       >
         Xem hợp đồng trên Google Drive
