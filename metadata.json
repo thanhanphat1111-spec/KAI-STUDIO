@@ -1,0 +1,5 @@
+{
+  "name": "Hệ thống Quản lý & Ký Hợp đồng OTP",
+  "description": "Ứng dụng lập thông tin khách hàng, gửi OTP xác nhận và ký hợp đồng điện tử.",
+  "requestFramePermissions": []
+}
