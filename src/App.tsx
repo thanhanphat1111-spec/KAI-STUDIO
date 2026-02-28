@@ -1,14 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, useParams, useNavigate } from 'react-router-dom';
-import { Plus, FileText, CheckCircle, Clock, ExternalLink, Send, Trash2, LayoutDashboard, Database as DatabaseIcon } from 'lucide-react';
+import { BrowserRouter as Router, Routes, Route, useParams } from 'react-router-dom';
+import { Plus, FileText, CheckCircle, Clock, ExternalLink, Send, Trash2, Database as DatabaseIcon, LogOut } from 'lucide-react';
 import SignatureCanvas from 'react-signature-canvas';
 import { format } from 'date-fns';
 import { cn } from './lib/utils';
 import { Contract } from './types';
+import { supabase } from './lib/supabase';
 
 // --- Components ---
 
 const AdminDashboard = () => {
+  const [session, setSession] = useState<any>(null);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [activeTab, setActiveTab] = useState<'create' | 'data'>('create');
   const [loading, setLoading] = useState(false);
@@ -19,6 +25,26 @@ const AdminDashboard = () => {
     contract_value: '',
     contract_link: ''
   });
+  const [lastCreated, setLastCreated] = useState<{ otp: string; link: string } | null>(null);
+
+  // Lắng nghe trạng thái đăng nhập
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
+    if (error) alert('Đăng nhập thất bại: Sai email hoặc mật khẩu!');
+    setAuthLoading(false);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
 
   const formatNumber = (val: string) => {
     if (!val) return '';
@@ -30,7 +56,6 @@ const AdminDashboard = () => {
     const rawValue = e.target.value.replace(/\D/g, '');
     setFormData({ ...formData, contract_value: rawValue });
   };
-  const [lastCreated, setLastCreated] = useState<{ otp: string; link: string } | null>(null);
 
   const fetchContracts = async () => {
     try {
@@ -44,10 +69,10 @@ const AdminDashboard = () => {
   };
 
   useEffect(() => {
-    if (activeTab === 'data') {
+    if (session && activeTab === 'data') {
       fetchContracts();
     }
-  }, [activeTab]);
+  }, [activeTab, session]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,14 +103,12 @@ const AdminDashboard = () => {
       });
       alert('Hợp đồng đã được tạo thành công!');
     } catch (error: any) {
-      console.error('Error creating contract:', error);
       alert('Có lỗi xảy ra: ' + error.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // --- HÀM XỬ LÝ XÓA HỢP ĐỒNG ---
   const handleDelete = async (id: number) => {
     const confirmDelete = window.confirm("Bạn có chắc chắn muốn xóa hợp đồng này không? Dữ liệu không thể khôi phục.");
     if (!confirmDelete) return;
@@ -93,6 +116,9 @@ const AdminDashboard = () => {
     try {
       const res = await fetch(`/api/delete-contract?id=${id}`, {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}` // Gửi token để verify Admin
+        }
       });
       
       if (!res.ok) {
@@ -101,11 +127,50 @@ const AdminDashboard = () => {
       }
       
       alert('Đã xóa hợp đồng thành công!');
-      fetchContracts(); // Cập nhật lại danh sách ngay lập tức
+      fetchContracts(); 
     } catch (error: any) {
       alert('Có lỗi xảy ra: ' + error.message);
     }
   };
+
+  // Màn hình Login nếu chưa đăng nhập
+  if (!session) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4 font-sans">
+        <form onSubmit={handleLogin} className="bg-white p-8 rounded-3xl shadow-xl max-w-sm w-full space-y-5 border border-gray-100">
+          <div className="text-center mb-6">
+            <div className="bg-indigo-600 p-3 rounded-xl inline-block mb-3">
+              <FileText className="text-white w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900">ContractFlow</h2>
+            <p className="text-gray-500 text-sm mt-1">Đăng nhập hệ thống quản lý</p>
+          </div>
+          <input
+            type="email" required placeholder="Email đăng nhập"
+            value={authEmail} onChange={e => setAuthEmail(e.target.value)}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+          />
+          <input
+            type="password" required placeholder="Mật khẩu"
+            value={authPassword} onChange={e => setAuthPassword(e.target.value)}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+          />
+          <button disabled={authLoading} type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold shadow-md hover:bg-indigo-700 transition-colors disabled:opacity-50">
+            {authLoading ? 'Đang xử lý...' : 'Đăng Nhập'}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  // ĐÃ THÊM 3 EMAIL ADMIN VÀO ĐÂY
+  const user = session.user;
+  const ADMIN_EMAILS = [
+    'luat.marstudioo@gmail.com', 
+    'kaistudio@gmail.com', 
+    'vietphuoctran11@gmail.com'
+  ];
+  const isAdmin = ADMIN_EMAILS.includes(user.email);
 
   return (
     <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans">
@@ -118,31 +183,28 @@ const AdminDashboard = () => {
               </div>
               <span className="text-xl font-bold tracking-tight">ContractFlow</span>
             </div>
-            <div className="flex gap-4">
+            <div className="flex items-center gap-4">
               <button
                 onClick={() => setActiveTab('create')}
-                className={cn(
-                  "px-4 py-2 rounded-full text-sm font-medium transition-all",
-                  activeTab === 'create' ? "bg-indigo-600 text-white shadow-md shadow-indigo-200" : "text-gray-600 hover:bg-gray-100"
-                )}
+                className={cn("px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2", activeTab === 'create' ? "bg-indigo-600 text-white shadow-md shadow-indigo-200" : "text-gray-600 hover:bg-gray-100")}
               >
-                <div className="flex items-center gap-2">
-                  <Plus size={18} />
-                  <span>Tạo Hợp Đồng</span>
-                </div>
+                <Plus size={18} /><span>Tạo Hợp Đồng</span>
               </button>
               <button
                 onClick={() => setActiveTab('data')}
-                className={cn(
-                  "px-4 py-2 rounded-full text-sm font-medium transition-all",
-                  activeTab === 'data' ? "bg-indigo-600 text-white shadow-md shadow-indigo-200" : "text-gray-600 hover:bg-gray-100"
-                )}
+                className={cn("px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-2", activeTab === 'data' ? "bg-indigo-600 text-white shadow-md shadow-indigo-200" : "text-gray-600 hover:bg-gray-100")}
               >
-                <div className="flex items-center gap-2">
-                  <DatabaseIcon size={18} />
-                  <span>Dữ Liệu</span>
-                </div>
+                <DatabaseIcon size={18} /><span>Dữ Liệu</span>
               </button>
+              
+              <div className="h-6 w-px bg-gray-200 mx-2"></div>
+              
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-gray-600 hidden md:block">{user.email} {isAdmin && <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full ml-1">Admin</span>}</span>
+                <button onClick={handleLogout} title="Đăng xuất" className="text-gray-400 hover:text-red-500 transition-colors bg-gray-50 p-2 rounded-full hover:bg-red-50">
+                  <LogOut size={18} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -159,33 +221,15 @@ const AdminDashboard = () => {
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Tên Khách Hàng</label>
-                  <input
-                    required
-                    type="text"
-                    value={formData.customer_name}
-                    onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })}
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
-                    placeholder="Nguyễn Văn A"
-                  />
+                  <input required type="text" value={formData.customer_name} onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" placeholder="Nguyễn Văn A" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Số Điện Thoại</label>
-                  <input
-                    required
-                    type="tel"
-                    value={formData.phone_number}
-                    onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
-                    placeholder="0901234567"
-                  />
+                  <input required type="tel" value={formData.phone_number} onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" placeholder="0901234567" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Loại Hợp Đồng</label>
-                  <select
-                    value={formData.contract_type}
-                    onChange={(e) => setFormData({ ...formData, contract_type: e.target.value })}
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all appearance-none bg-white"
-                  >
+                  <select value={formData.contract_type} onChange={(e) => setFormData({ ...formData, contract_type: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all appearance-none bg-white">
                     <option>Hợp đồng thiết kế kiến trúc</option>
                     <option>Hợp đồng thiết kế nội thất</option>
                     <option>Hợp đồng thiết kế thi công</option>
@@ -198,37 +242,14 @@ const AdminDashboard = () => {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Giá Trị Hợp Đồng (VNĐ)</label>
-                  <input
-                    required
-                    type="text"
-                    value={formatNumber(formData.contract_value)}
-                    onChange={handleValueChange}
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
-                    placeholder="100.000.000"
-                  />
+                  <input required type="text" value={formatNumber(formData.contract_value)} onChange={handleValueChange} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" placeholder="100.000.000" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Link Hợp Đồng (Google Drive)</label>
-                  <input
-                    required
-                    type="url"
-                    value={formData.contract_link}
-                    onChange={(e) => setFormData({ ...formData, contract_link: e.target.value })}
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
-                    placeholder="https://drive.google.com/..."
-                  />
+                  <input required type="url" value={formData.contract_link} onChange={(e) => setFormData({ ...formData, contract_link: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all" placeholder="https://drive.google.com/..." />
                 </div>
-                <button
-                  disabled={loading}
-                  type="submit"
-                  className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50"
-                >
-                  {loading ? 'Đang xử lý...' : (
-                    <>
-                      <Send size={20} />
-                      Tạo & Gửi OTP
-                    </>
-                  )}
+                <button disabled={loading} type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50">
+                  {loading ? 'Đang xử lý...' : <><Send size={20} /> Tạo & Gửi OTP</>}
                 </button>
               </form>
             </div>
@@ -237,26 +258,16 @@ const AdminDashboard = () => {
               <div className="bg-indigo-900 text-white p-8 rounded-3xl shadow-xl">
                 <h3 className="text-xl font-bold mb-4">Hướng dẫn</h3>
                 <ul className="space-y-4 text-indigo-100">
-                  <li className="flex gap-3">
-                    <div className="bg-indigo-800 w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0">1</div>
-                    <p>Nhập đầy đủ thông tin khách hàng và link hợp đồng.</p>
-                  </li>
-                  <li className="flex gap-3">
-                    <div className="bg-indigo-800 w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0">2</div>
-                    <p>Bấm nút "Tạo & Gửi OTP" để hệ thống tạo mã xác nhận.</p>
-                  </li>
-                  <li className="flex gap-3">
-                    <div className="bg-indigo-800 w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0">3</div>
-                    <p>Khách hàng sẽ nhận được link truy cập để nhập OTP và ký tên.</p>
-                  </li>
+                  <li className="flex gap-3"><div className="bg-indigo-800 w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0">1</div><p>Nhập đầy đủ thông tin khách hàng và link hợp đồng.</p></li>
+                  <li className="flex gap-3"><div className="bg-indigo-800 w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0">2</div><p>Bấm nút "Tạo & Gửi OTP" để hệ thống tạo mã xác nhận.</p></li>
+                  <li className="flex gap-3"><div className="bg-indigo-800 w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0">3</div><p>Khách hàng sẽ nhận được link truy cập để nhập OTP và ký tên.</p></li>
                 </ul>
               </div>
 
               {lastCreated && (
                 <div className="bg-emerald-50 border border-emerald-100 p-6 rounded-3xl animate-in fade-in slide-in-from-bottom-4 duration-500">
                   <h4 className="text-emerald-800 font-bold mb-2 flex items-center gap-2">
-                    <CheckCircle size={18} />
-                    Hợp đồng vừa tạo
+                    <CheckCircle size={18} /> Hợp đồng vừa tạo
                   </h4>
                   <div className="space-y-3 text-sm">
                     <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-emerald-100">
@@ -265,9 +276,8 @@ const AdminDashboard = () => {
                     </div>
                     <div className="bg-white p-3 rounded-xl border border-emerald-100">
                       <span className="text-gray-500 block mb-1">Link xác nhận:</span>
-                      <a href={lastCreated.link} target="_blank" className="text-indigo-600 break-all hover:underline flex items-center gap-1">
-                        {lastCreated.link}
-                        <ExternalLink size={14} />
+                      <a href={lastCreated.link} target="_blank" rel="noopener noreferrer" className="text-indigo-600 break-all hover:underline flex items-center gap-1">
+                        {lastCreated.link} <ExternalLink size={14} />
                       </a>
                     </div>
                   </div>
@@ -290,7 +300,7 @@ const AdminDashboard = () => {
                     <th className="px-6 py-4">Trạng Thái</th>
                     <th className="px-6 py-4">Xác Nhận</th>
                     <th className="px-6 py-4">Chữ Ký</th>
-                    <th className="px-6 py-4 text-center">Xóa</th>
+                    {isAdmin && <th className="px-6 py-4 text-center">Xóa</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -305,20 +315,14 @@ const AdminDashboard = () => {
                         <div className="text-xs text-indigo-600 font-bold">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(c.contract_value)}</div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={cn(
-                          "px-3 py-1 rounded-full text-xs font-bold",
-                          c.status === 'Đã xác nhận' ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                        )}>
+                        <span className={cn("px-3 py-1 rounded-full text-xs font-bold", c.status === 'Đã xác nhận' ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>
                           {c.status}
                         </span>
                       </td>
                       <td className="px-6 py-4">
                         {c.confirmation_time ? (
                           <div className="text-xs text-gray-500">
-                            <div className="flex items-center gap-1">
-                              <Clock size={12} />
-                              {format(new Date(c.confirmation_time), 'HH:mm dd/MM/yyyy')}
-                            </div>
+                            <div className="flex items-center gap-1"><Clock size={12} />{format(new Date(c.confirmation_time), 'HH:mm dd/MM/yyyy')}</div>
                           </div>
                         ) : (
                           <span className="text-xs text-gray-400 italic">Chưa xác nhận</span>
@@ -328,25 +332,21 @@ const AdminDashboard = () => {
                         {c.signature_image ? (
                           <img src={c.signature_image} alt="Signature" className="h-10 w-auto border border-gray-200 rounded bg-white" />
                         ) : (
-                          <div className="h-10 w-20 bg-gray-100 rounded flex items-center justify-center">
-                            <span className="text-[10px] text-gray-400">N/A</span>
-                          </div>
+                          <div className="h-10 w-20 bg-gray-100 rounded flex items-center justify-center"><span className="text-[10px] text-gray-400">N/A</span></div>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-center">
-                        <button
-                          onClick={() => handleDelete(c.id)}
-                          className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-full transition-all"
-                          title="Xóa hợp đồng này"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </td>
+                      {isAdmin && (
+                        <td className="px-6 py-4 text-center">
+                          <button onClick={() => handleDelete(c.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-full transition-all" title="Xóa hợp đồng này">
+                            <Trash2 size={18} />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                   {contracts.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-gray-400 italic">
+                      <td colSpan={isAdmin ? 6 : 5} className="px-6 py-12 text-center text-gray-400 italic">
                         Chưa có dữ liệu hợp đồng nào.
                       </td>
                     </tr>
@@ -382,7 +382,6 @@ const CustomerConfirmation = () => {
         const data = await res.json();
         setContract(data);
       } catch (error: any) {
-        console.error('Failed to fetch contract:', error);
         alert('Lỗi: ' + error.message);
       } finally {
         setLoading(false);
@@ -417,11 +416,7 @@ const CustomerConfirmation = () => {
     }
   };
 
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"></div>
-    </div>
-  );
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"></div></div>;
 
   if (!contract) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
@@ -446,7 +441,7 @@ const CustomerConfirmation = () => {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
+    <div className="min-h-screen bg-gray-50 py-8 px-4 font-sans">
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
           <div className="flex justify-between items-start mb-6">
@@ -472,14 +467,9 @@ const CustomerConfirmation = () => {
 
           <div className="mb-8">
             <h3 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
-              <FileText size={16} className="text-indigo-600" />
-              Tài liệu hợp đồng
+              <FileText size={16} className="text-indigo-600" /> Tài liệu hợp đồng
             </h3>
-            <a 
-              href={contract.contract_link} 
-              target="_blank" 
-              className="flex items-center justify-between p-4 bg-white border-2 border-dashed border-gray-200 rounded-2xl hover:border-indigo-300 hover:bg-indigo-50 transition-all group"
-            >
+            <a href={contract.contract_link} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 bg-white border-2 border-dashed border-gray-200 rounded-2xl hover:border-indigo-300 hover:bg-indigo-50 transition-all group">
               <div className="flex items-center gap-3">
                 <div className="bg-red-50 p-2 rounded-lg group-hover:bg-red-100 transition-colors">
                   <FileText className="text-red-500" size={20} />
@@ -493,41 +483,21 @@ const CustomerConfirmation = () => {
           <div className="space-y-6">
             <div>
               <label className="block text-sm font-bold text-gray-900 mb-2">Nhập mã OTP</label>
-              <input
-                type="text"
-                maxLength={6}
-                value={otp}
-                onChange={(e) => setOtp(e.target.value)}
-                className="w-full text-center text-3xl font-mono font-bold tracking-[0.5em] py-4 rounded-2xl border-2 border-gray-100 focus:border-indigo-500 outline-none transition-all"
-                placeholder="000000"
-              />
+              <input type="text" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value)} className="w-full text-center text-3xl font-mono font-bold tracking-[0.5em] py-4 rounded-2xl border-2 border-gray-100 focus:border-indigo-500 outline-none transition-all" placeholder="000000" />
               <p className="text-xs text-gray-400 mt-2 text-center italic">Mã OTP đã được gửi tới số điện thoại của bạn</p>
             </div>
 
             <div>
               <div className="flex justify-between items-end mb-2">
                 <label className="block text-sm font-bold text-gray-900">Chữ ký khách hàng</label>
-                <button 
-                  onClick={() => sigCanvas.current?.clear()} 
-                  className="text-xs text-indigo-600 font-medium hover:underline"
-                >
-                  Xóa chữ ký
-                </button>
+                <button onClick={() => sigCanvas.current?.clear()} className="text-xs text-indigo-600 font-medium hover:underline">Xóa chữ ký</button>
               </div>
               <div className="border-2 border-gray-100 rounded-2xl bg-gray-50 overflow-hidden h-48">
-                <SignatureCanvas
-                  ref={sigCanvas}
-                  penColor="black"
-                  canvasProps={{ className: 'w-full h-full' }}
-                />
+                <SignatureCanvas ref={sigCanvas} penColor="black" canvasProps={{ className: 'w-full h-full' }} />
               </div>
             </div>
 
-            <button
-              disabled={submitting}
-              onClick={handleConfirm}
-              className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100 disabled:opacity-50"
-            >
+            <button disabled={submitting} onClick={handleConfirm} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100 disabled:opacity-50">
               {submitting ? 'Đang xác nhận...' : 'Xác Nhận & Ký Hợp Đồng'}
             </button>
           </div>
@@ -536,8 +506,6 @@ const CustomerConfirmation = () => {
     </div>
   );
 };
-
-// --- App ---
 
 export default function App() {
   return (
