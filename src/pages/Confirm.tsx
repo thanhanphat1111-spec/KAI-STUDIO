@@ -13,25 +13,17 @@ export default function Confirm() {
     const fetchContract = async () => {
       try {
         const res = await fetch(`/api/contracts/${id}`)
-
-        if (!res.ok) {
-          setContract(null)
-          setLoading(false)
-          return
-        }
-
         const data = await res.json()
         setContract(data)
-      } catch (error) {
+      } catch (err) {
+        console.error(err)
         setContract(null)
       } finally {
         setLoading(false)
       }
     }
 
-    if (id) {
-      fetchContract()
-    }
+    if (id) fetchContract()
   }, [id])
 
   const handleVerify = async () => {
@@ -66,7 +58,6 @@ export default function Confirm() {
       <a
         href={contract.contract_link}
         target="_blank"
-        rel="noopener noreferrer"
         className="text-blue-600 underline"
       >
         Xem hợp đồng trên Google Drive
