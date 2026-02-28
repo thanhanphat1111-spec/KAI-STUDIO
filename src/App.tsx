@@ -345,7 +345,8 @@ const CustomerConfirmation = () => {
       setLoading(true);
       try {
         console.log('Fetching contract with ID:', id);
-        const res = await fetch(`/api/contracts/${id}`);
+        // ĐÃ SỬA DÒNG NÀY ĐỂ TRỎ ĐÚNG FILE FLAT API:
+        const res = await fetch(`/api/get-contract?id=${id}`);
         if (!res.ok) {
           const err = await res.json();
           throw new Error(err.error || 'Không tìm thấy hợp đồng');
@@ -370,10 +371,11 @@ const CustomerConfirmation = () => {
     setSubmitting(true);
     try {
       const signatureImage = sigCanvas.current?.getTrimmedCanvas().toDataURL('image/png');
-      const res = await fetch(`/api/contracts/${id}/verify`, {
+      // ĐÃ SỬA DÒNG NÀY ĐỂ TRỎ ĐÚNG FILE FLAT API & TRUYỀN THÊM ID:
+      const res = await fetch(`/api/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ otp, signature_image: signatureImage })
+        body: JSON.stringify({ id, otp, signature_image: signatureImage })
       });
       
       const data = await res.json();
