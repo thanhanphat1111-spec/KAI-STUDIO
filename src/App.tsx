@@ -37,7 +37,6 @@ const AdminDashboard = () => {
       const res = await fetch('/api/contracts');
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
-      console.log('Fetched contracts:', data);
       setContracts(data);
     } catch (error) {
       console.error('Failed to fetch contracts', error);
@@ -69,7 +68,6 @@ const AdminDashboard = () => {
       }
       
       const data = await res.json();
-      console.log('Contract created:', data);
       setLastCreated({ otp: data.otp, link: data.confirmationLink });
       setFormData({
         customer_name: '',
@@ -84,6 +82,28 @@ const AdminDashboard = () => {
       alert('Có lỗi xảy ra: ' + error.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // --- HÀM XỬ LÝ XÓA HỢP ĐỒNG ---
+  const handleDelete = async (id: number) => {
+    const confirmDelete = window.confirm("Bạn có chắc chắn muốn xóa hợp đồng này không? Dữ liệu không thể khôi phục.");
+    if (!confirmDelete) return;
+
+    try {
+      const res = await fetch(`/api/delete-contract?id=${id}`, {
+        method: 'DELETE',
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Lỗi khi xóa hợp đồng');
+      }
+      
+      alert('Đã xóa hợp đồng thành công!');
+      fetchContracts(); // Cập nhật lại danh sách ngay lập tức
+    } catch (error: any) {
+      alert('Có lỗi xảy ra: ' + error.message);
     }
   };
 
@@ -270,6 +290,7 @@ const AdminDashboard = () => {
                     <th className="px-6 py-4">Trạng Thái</th>
                     <th className="px-6 py-4">Xác Nhận</th>
                     <th className="px-6 py-4">Chữ Ký</th>
+                    <th className="px-6 py-4 text-center">Xóa</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -312,11 +333,20 @@ const AdminDashboard = () => {
                           </div>
                         )}
                       </td>
+                      <td className="px-6 py-4 text-center">
+                        <button
+                          onClick={() => handleDelete(c.id)}
+                          className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-full transition-all"
+                          title="Xóa hợp đồng này"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                   {contracts.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-gray-400 italic">
+                      <td colSpan={6} className="px-6 py-12 text-center text-gray-400 italic">
                         Chưa có dữ liệu hợp đồng nào.
                       </td>
                     </tr>
@@ -344,15 +374,12 @@ const CustomerConfirmation = () => {
     const fetchContract = async () => {
       setLoading(true);
       try {
-        console.log('Fetching contract with ID:', id);
-        // ĐÃ SỬA DÒNG NÀY ĐỂ TRỎ ĐÚNG FILE FLAT API:
         const res = await fetch(`/api/get-contract?id=${id}`);
         if (!res.ok) {
           const err = await res.json();
           throw new Error(err.error || 'Không tìm thấy hợp đồng');
         }
         const data = await res.json();
-        console.log('Contract data received:', data);
         setContract(data);
       } catch (error: any) {
         console.error('Failed to fetch contract:', error);
@@ -371,7 +398,6 @@ const CustomerConfirmation = () => {
     setSubmitting(true);
     try {
       const signatureImage = sigCanvas.current?.getTrimmedCanvas().toDataURL('image/png');
-      // ĐÃ SỬA DÒNG NÀY ĐỂ TRỎ ĐÚNG FILE FLAT API & TRUYỀN THÊM ID:
       const res = await fetch(`/api/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
