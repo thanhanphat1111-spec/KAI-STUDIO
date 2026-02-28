@@ -7,14 +7,7 @@ const supabase = createClient(
 
 export default async function handler(req, res) {
   if (req.method === "POST") {
-    const {
-      customer_name,
-      phone_number,
-      contract_type,
-      contract_value,
-      contract_link
-    } = req.body;
-
+    const { customer_name, phone_number, contract_type, contract_value, contract_link } = req.body;
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
     const { data, error } = await supabase
@@ -31,9 +24,7 @@ export default async function handler(req, res) {
       .select()
       .single();
 
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
+    if (error) return res.status(500).json({ error: error.message });
 
     return res.status(200).json({
       id: data.id,
@@ -43,15 +34,8 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "GET") {
-    const { data, error } = await supabase
-      .from("contracts")
-      .select("*")
-      .order("id", { ascending: false });
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
-
+    const { data, error } = await supabase.from("contracts").select("*").order("created_at", { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json(data);
   }
 
